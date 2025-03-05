@@ -18,19 +18,6 @@ The Daily Stoic AI Telegram Channel project aims to create an engaging and educa
 
 ## Project Structure
 
-```
-daily_stoic/
-├── config/           # Database schema and configuration
-├── data/            # Quote data and sources
-├── src/             # Source code
-│   ├── ingest_quotes.py       # Quote ingestion script
-│   ├── parse_meditations_quotes.py  # Meditations quote parser
-│   ├── database.py            # Database operations
-│   └── config.py              # Configuration management
-├── tests/           # Test files
-└── deploy/          # Deployment scripts
-```
-
 ## Setup Instructions
 
 1. Clone the repository:
@@ -79,44 +66,6 @@ The project requires the following API keys:
    - Get from @BotFather on Telegram
    - Format: '1234567890:ABCdefGHIjklMNOpqrSTUVwxyz'
 
-2. **LLM API Key**
-   - Required for AI-generated insights
-   - Supported providers: OpenAI, Anthropic, etc.
-   - Get from your chosen provider's dashboard
+2. **Gemini API Key**
+   - Required for AI-generated insights and generating visual content
 
-3. **Image Generation API Key**
-   - Required for generating visual content
-   - Supported providers: DALL-E, Midjourney, etc.
-   - Get from your chosen provider's dashboard
-
-## Running the Bot
-
-To start the bot:
-```bash
-python -m src.bot
-```
-
-The bot will automatically post quotes at the configured time (UTC).
-
-## Database Setup
-
-The project uses SQLite for storing quotes and scheduling information. The database schema is defined in `config/schema.sql`.
-
-## Testing
-
-The project includes a comprehensive test suite. Run tests using:
-   ```bash
-   python -m pytest
-   ```
-
-## Contributing
-
-1. Fork the repository
-2. Create your feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a new Pull Request
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
