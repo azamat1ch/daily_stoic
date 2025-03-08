@@ -9,17 +9,16 @@ This prompt guides the LLM to create a detailed image generation prompt based on
 **Current Active Prompt:**
 
 ```text
-Generate a concise and evocative image prompt for an AI generator based on the Stoic quote: '{quote_text}'. Focus on creating a philosophical and inspirational image imbued with Stoic wisdom. The prompt must specify:
+Based on the Stoic quote: '{quote_text}', craft an evocative image prompt (max 100 words) for an AI image generator.
 
-*   **Subject & Action:** A central figure or element embodying a specific Stoic principle derived from the quote (e.g., resilience, acceptance, rationality). Describe posture, expression (if applicable), and interaction with the environment clearly.
-*   **Setting:** A background that contextually reinforces the philosophical theme, described with specific elements and atmosphere (e.g., 'minimalist environment', 'ancient Roman ruins at dawn', 'vast, calm sea', 'well-ordered study').
-*   **Visual Style:** A precisely defined artistic style (e.g., 'Minimalist philosophical illustration with classical Roman influences', 'Photorealistic, cinematic, shallow depth of field', 'Neo-classical oil painting style', 'Stylized graphic novel art').
-*   **Color Palette:** A specific, mood-enhancing color scheme (e.g., 'Muted earth tones (ochre, sienna, grey) with deep blues', 'Monochromatic grayscale with selective gold accents', 'Cool, serene blues and greens', 'Warm, contemplative sunrise hues').
-*   **Mood/Atmosphere:** The desired emotional tone (e.g., 'Stoic serenity', 'Quiet determination', 'Contemplative solitude', 'Profound acceptance', 'Focused rationality').
-*   **Symbolism:** Integration of relevant, clearly described Stoic visual symbols derived from the quote (e.g., 'subtly placed hourglass', 'steady flame', 'balanced geometric shapes', 'deep-rooted oak tree').
-*   **Composition & Lighting:** Clear guidance on framing and light (e.g., 'Centered composition, dramatic chiaroscuro lighting', 'Rule of thirds, wide-angle, soft golden hour light', 'Symmetrical balance, high-key lighting').
+1.  **Scene & Subject:** Describe a scene vividly capturing the quote's essence. Detail the main subject (this could be a person, animal, object, or even an abstract representation) and their action reflecting a Stoic principle (like acceptance, resilience, focus). Ensure the subject and scene are directly inspired by the quote and offer variety, not limited to classical figures or statues.
+2.  **Setting & Atmosphere:** Paint a picture of the setting, specifying its atmosphere (e.g., a quiet natural landscape during twilight, a single focused individual amidst chaos, a simple room bathed in morning light).
+3.  **Visual Style:** Define a clear visual style. Aim for a **cinematic and atmospheric quality**, often utilizing **dramatic, focused, or chiaroscuro-style lighting**. Styles like **realistic digital painting, atmospheric 3D render, high-detail illustration, or even stylized photorealism** fit well, but select the most appropriate for the specific quote.
+4.  **Color Palette:** Specify a fitting color palette. Often lean towards **muted, deep, or contemplative tones (e.g., blues, grays, greens, earthy browns)**, but ensure it complements the scene's specific mood and subject.
+5.  **Mood:** Convey the overall mood clearly (e.g., contemplative, resilient, tranquil acceptance, quiet determination).
+6.  **Symbolism:** Include subtle, integrated symbolism related to the quote's core message.
 
-The final output must be *only* the generated image prompt itself (max 100 words), coherent, rich in detail, visually appealing, and optimized for producing an image that clearly communicates Stoic philosophy based on the provided quote.
+Ensure the final output is *only* the image prompt itself, ready for an image generation model.
 ```
 
 ### Tested Variations (April 2025)
