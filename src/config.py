@@ -36,16 +36,13 @@ class Config:
     TELEGRAM_CHANNEL_ID = os.getenv('TELEGRAM_CHANNEL_ID')
     
     # AI Services Configuration
-    LLM_API_KEY = os.getenv('LLM_API_KEY')
-    IMAGE_GEN_API_KEY = os.getenv('IMAGE_GEN_API_KEY')
-    
-    # Database Configuration
-    DATABASE_PATH = os.getenv('DATABASE_PATH', 'data/quotes.db')
-    
-    # Application Settings
-    POST_TIME = os.getenv('POST_TIME', '07:00')  # Default to 7 AM UTC
-    DEBUG_MODE = os.getenv('DEBUG_MODE', 'False').lower() in ('true', '1', 't')
-    
+    GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+
+    # Font Configuration
+    FONT_FILENAME = 'PTSerif-Regular.ttf' # Using the regular variant by default
+    ITALIC_FONT_FILENAME = 'PTSerif-Italic.ttf' # Using the regular variant by default
+    FONT_PATH = BASE_DIR / 'assets' / 'fonts' / FONT_FILENAME
+    ITALIC_FONT_PATH = BASE_DIR / 'assets' / 'fonts' / ITALIC_FONT_FILENAME
     @classmethod
     def validate(cls):
         """
@@ -54,7 +51,8 @@ class Config:
         """
         required_vars = [
             'TELEGRAM_BOT_TOKEN',
-            'TELEGRAM_CHANNEL_ID'
+            'TELEGRAM_CHANNEL_ID',
+            'GEMINI_API_KEY'
         ]
         
         missing_vars = [var for var in required_vars if getattr(cls, var) is None]
