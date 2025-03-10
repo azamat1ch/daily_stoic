@@ -5,10 +5,9 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-from src.config import config
+from src.config import Config
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__) # Use module-specific logger
 
 def embed_text_on_image(image_data: bytes, quote_text: str, author: str) -> Image.Image | None:
     """
@@ -32,13 +31,13 @@ def embed_text_on_image(image_data: bytes, quote_text: str, author: str) -> Imag
 
         # Load the font
         # Ensure the font path is a string
-        font_path_str = str(config.FONT_PATH)
+        font_path_str = str(Config.FONT_PATH) # Use static access Config.FONT_PATH
         # Use a relative size for the font, e.g., 5% of image height
         base_font_size = int(height * 0.05)
         quote_font = ImageFont.truetype(font_path_str, size=base_font_size)
         author_font_size = int(base_font_size * 0.7) # Slightly smaller for author
         # Construct path to italic font relative to the main font path
-        italic_font_path_str = str(config.ITALIC_FONT_PATH)
+        italic_font_path_str = str(Config.ITALIC_FONT_PATH) # Use static access Config.ITALIC_FONT_PATH
         author_font = ImageFont.truetype(italic_font_path_str, size=author_font_size)
 
         # --- Text Metrics Calculation ---
@@ -120,11 +119,11 @@ def embed_text_on_image(image_data: bytes, quote_text: str, author: str) -> Imag
         return image
 
     except FileNotFoundError:
-        logging.error(f"Error: Font file not found at {config.FONT_PATH}")
+        logger.error(f"Error: Font file not found at {Config.FONT_PATH}") # Use static access Config.FONT_PATH
         return None
     except IOError as e:
-        logging.error(f"Error opening or processing image: {e}")
+        logger.error(f"Error opening or processing image: {e}", exc_info=True)
         return None
     except Exception as e:
-        logging.error(f"An unexpected error occurred during text embedding: {e}")
+        logger.error(f"An unexpected error occurred during text embedding: {e}", exc_info=True)
         return None

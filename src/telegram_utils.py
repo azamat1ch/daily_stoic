@@ -3,7 +3,12 @@ import io
 from telegram import Bot
 from telegram.error import TelegramError
 from PIL import Image # To type hint image_object
+import asyncio 
+import os
+from src.config import Config
 
+# Setup logger
+logger = logging.getLogger(__name__)
 async def post_to_telegram(bot_token: str, chat_id: str, image_object: Image.Image, caption_text: str) -> bool:
     """
     Sends a photo with a caption to the specified Telegram chat using python-telegram-bot (v20+).
@@ -17,11 +22,12 @@ async def post_to_telegram(bot_token: str, chat_id: str, image_object: Image.Ima
     Returns:
         True if the message was sent successfully, False otherwise.
     """
-    if not all([bot_token, chat_id, image_object, caption_text]):
-        logging.error("Missing required arguments for post_to_telegram.")
+    # Added type check for image_object
+    if not all([bot_token, chat_id, isinstance(image_object, Image.Image), caption_text]):
+        logger.error(f"Missing or invalid required arguments for post_to_telegram. Got token: {'yes' if bot_token else 'no'}, chat_id: {chat_id}, image: {type(image_object)}, caption: {'yes' if caption_text else 'no'}")
         return False
 
-    logging.info(f"Attempting to post image to Telegram chat ID: {chat_id}")
+    logger.info(f"Attempting to post image to Telegram chat ID: {chat_id}")
 
     try:
         bot = Bot(token=bot_token)
@@ -38,34 +44,49 @@ async def post_to_telegram(bot_token: str, chat_id: str, image_object: Image.Ima
             photo=img_byte_arr,
             caption=caption_text
         )
-        logging.info(f"Successfully posted image with caption to chat ID: {chat_id}")
+        logger.info(f"Successfully posted image with caption to chat ID: {chat_id}")
         return True
 
     except TelegramError as e:
-        logging.error(f"Telegram API error while sending photo to {chat_id}: {e}")
+        logger.error(f"Telegram API error while sending photo to {chat_id}: {e}")
         return False
     except Exception as e:
-        logging.error(f"An unexpected error occurred in post_to_telegram: {e}")
+        logger.error(f"An unexpected error occurred in post_to_telegram: {e}", exc_info=True)
         return False
 
 if __name__ == '__main__':
-    import asyncio
-    from dotenv import load_dotenv
-    import os
-    load_dotenv()
-    TEST_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-    TEST_CHAT_ID = os.getenv("TELEGRAM_TARGET_CHAT_ID")
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    logger.info("Running telegram_utils.py directly for testing...")
+
+
+    TEST_BOT_TOKEN = Config.TELEGRAM_BOT_TOKEN
+    TEST_CHAT_ID = Config.TELEGRAM_CHANNEL_ID
+
+    logger.info(f"Test Config - Bot Token Loaded: {'Yes' if TEST_BOT_TOKEN else 'No'}")
+    logger.info(f"Test Config - Chat ID Loaded: {'Yes' if TEST_CHAT_ID else 'No'}")
 
     if TEST_BOT_TOKEN and TEST_CHAT_ID:
-        dummy_image = Image.new('RGB', (600, 400), color = 'red')
-        dummy_caption = "This is a test post from telegram_utils.py"
-        async def run_test():
-            success = await post_to_telegram(TEST_BOT_TOKEN, TEST_CHAT_ID, dummy_image, dummy_caption)
-            if success:
-                print("Test post sent successfully.")
-            else:
-                print("Test post failed.")
+        try:
+            dummy_image = Image.new('RGB', (600, 400), color = 'red')
+            dummy_caption = "This is a test post from telegram_utils.py"
 
-        asyncio.run(run_test())
+            async def run_test():
+                logger.info(f"Attempting test post to chat ID: {TEST_CHAT_ID}")
+                success = await post_to_telegram(TEST_BOT_TOKEN, TEST_CHAT_ID, dummy_image, dummy_caption)
+                if success:
+                    logger.info("Test post sent successfully.")
+                else:
+                    logger.error("Test post failed. Check logs above for details (API errors, etc.).")
+
+            # Run the async test function
+            asyncio.run(run_test())
+            logger.info("Test execution finished.")
+
+        except Exception as e:
+             logger.error(f"An error occurred during the test setup or execution: {e}", exc_info=True)
+
     else:
-        print("Please set TELEGRAM_BOT_TOKEN and TELEGRAM_TARGET_CHAT_ID in your .env file for testing.")
+        logger.warning("Testing skipped: Required configuration (TELEGRAM_BOT_TOKEN and/or TELEGRAM_CHANNEL_ID) not found in Config. Check .env file.")

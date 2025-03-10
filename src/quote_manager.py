@@ -2,13 +2,14 @@ import json
 import os
 import random
 import time
+import logging
 from typing import List, Dict, Any, Optional
 
-# Define the expected path to the quotes file relative to this script's location
-# Assumes quote_manager.py is in src/ and quotes.json is in data/
-QUOTES_FILE_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'quotes.json')
+from src.config import Config
+logger = logging.getLogger(__name__)
+DEFAULT_QUOTES_FILE_PATH = Config.QUOTES_FILE_PATH
 
-def load_quotes_from_json(file_path: str = QUOTES_FILE_PATH) -> List[Dict[str, Any]]:
+def load_quotes_from_json(file_path: str = str(DEFAULT_QUOTES_FILE_PATH)) -> List[Dict[str, Any]]:
     """
     Loads quotes from a JSON file structured as {"quotes": [...]}.
 
@@ -28,22 +29,21 @@ def load_quotes_from_json(file_path: str = QUOTES_FILE_PATH) -> List[Dict[str, A
         Exception: For other potential file reading errors.
     """
     if not os.path.exists(file_path):
-        raise FileNotFoundError(f"Error: Quotes file not found at {file_path}")
+        logger.error(f"Quotes file not found at {file_path}")
+        raise FileNotFoundError(f"Quotes file not found at {file_path}")
 
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
-            if not isinstance(data, dict) or "quotes" not in data:
-                print(f"Warning: Expected a dictionary with a 'quotes' key in {file_path}, but found {type(data)}. Returning empty list.")
+            if not isinstance(data, dict) or "quotes" not in data or not isinstance(data.get("quotes"), list):
+                logger.warning(f"Invalid JSON structure in {file_path}. Expected {{'quotes': [...]}}. Found type {type(data)} with quotes type {type(data.get('quotes'))}. Returning empty list.")
                 return []
 
             quotes_list = data["quotes"]
-            if not isinstance(quotes_list, list):
-                print(f"Warning: Expected 'quotes' key to contain a list in {file_path}, but got {type(quotes_list)}. Returning empty list.")
-                return []
 
+            # Basic check: ensure all items are dicts if list is not empty
             if quotes_list and not all(isinstance(q, dict) for q in quotes_list):
-                 print(f"Warning: Expected all items in the 'quotes' list in {file_path} to be dictionaries. Returning empty list.")
+                 logger.warning(f"Not all items in the 'quotes' list in {file_path} are dictionaries. Returning empty list.")
                  return []
 
             for quote in quotes_list:
@@ -52,15 +52,15 @@ def load_quotes_from_json(file_path: str = QUOTES_FILE_PATH) -> List[Dict[str, A
                     quote["last_used_timestamp"] = 0
                 elif not isinstance(quote["last_used_timestamp"], (int, float)):
                      # Ensure existing timestamps are numeric
-                     print(f"Warning: Non-numeric timestamp found for quote: {quote.get('text', 'N/A')}. Setting to 0.")
+                     logger.warning(f"Non-numeric timestamp found for quote: '{quote.get('text', 'N/A')[:50]}...'. Setting to 0.")
                      quote["last_used_timestamp"] = 0
 
             return quotes_list
     except json.JSONDecodeError as e:
-        print(f"Error decoding JSON from {file_path}: {e}")
+        logger.error(f"Error decoding JSON from {file_path}: {e}")
         raise
     except Exception as e:
-        print(f"An unexpected error occurred while reading {file_path}: {e}")
+        logger.error(f"An unexpected error occurred while reading {file_path}: {e}", exc_info=True)
         raise
 
 def select_quote(quotes: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -76,12 +76,13 @@ def select_quote(quotes: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
                                   input list is empty or invalid.
     """
     if not quotes:
-        print("Warning: Cannot select a quote from an empty list.")
+        logger.warning("Cannot select a quote from an empty list.")
         return None
 
     valid_quotes = [q for q in quotes if isinstance(q, dict) and "last_used_timestamp" in q and isinstance(q["last_used_timestamp"], (int, float))]
     if not valid_quotes:
-        print("Warning: No valid quotes with 'last_used_timestamp' found.")
+        # This might happen if load_quotes_from_json returned an empty list due to format errors
+        logger.warning("No valid quotes with numeric 'last_used_timestamp' found in the provided list.")
         return None
 
     min_timestamp = min(q["last_used_timestamp"] for q in valid_quotes)
@@ -89,7 +90,7 @@ def select_quote(quotes: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     selected_quote = random.choice(eligible_quotes)
     return selected_quote
 
-def update_quote_usage(selected_quote: Dict[str, Any], file_path: str = QUOTES_FILE_PATH) -> bool:
+def update_quote_usage(selected_quote: Dict[str, Any], file_path: str = str(DEFAULT_QUOTES_FILE_PATH)) -> bool:
     """
     Updates the 'last_used_timestamp' for the selected quote in the JSON file.
 
@@ -101,8 +102,8 @@ def update_quote_usage(selected_quote: Dict[str, Any], file_path: str = QUOTES_F
     Returns:
         bool: True if the update was successful, False otherwise.
     """
-    if not selected_quote or "text" not in selected_quote or "author" not in selected_quote:
-        print("Error: Invalid selected_quote object provided for update.")
+    if not selected_quote or not isinstance(selected_quote, dict) or "text" not in selected_quote or "author" not in selected_quote:
+        logger.error(f"Invalid selected_quote object provided for update: {selected_quote}")
         return False
 
     try:
@@ -110,8 +111,8 @@ def update_quote_usage(selected_quote: Dict[str, Any], file_path: str = QUOTES_F
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
 
-        if not isinstance(data, dict) or "quotes" not in data or not isinstance(data["quotes"], list):
-            print(f"Error: Invalid structure in {file_path} during update. Expected {{'quotes': [...]}}.")
+        if not isinstance(data, dict) or "quotes" not in data or not isinstance(data.get("quotes"), list):
+            logger.error(f"Invalid structure in {file_path} during update. Expected {{'quotes': [...]}}. Found type {type(data)} with quotes type {type(data.get('quotes'))}.")
             return False
 
         quote_found = False
@@ -122,49 +123,56 @@ def update_quote_usage(selected_quote: Dict[str, Any], file_path: str = QUOTES_F
             if isinstance(quote, dict) and quote.get("text") == selected_quote["text"] and quote.get("author") == selected_quote["author"]:
                 # Ensure the timestamp exists before updating
                 if "last_used_timestamp" not in data["quotes"][i]:
-                     print(f"Warning: 'last_used_timestamp' missing for quote being updated. Adding it.")
+                     logger.warning(f"Updating quote that was missing 'last_used_timestamp'. Adding it now.")
                 data["quotes"][i]["last_used_timestamp"] = current_timestamp
                 quote_found = True
                 break # Assume text/author combination is unique enough
 
         if not quote_found:
-            print(f"Warning: Could not find the selected quote in {file_path} to update timestamp.")
+            # This could happen if the quotes file was modified between selection and update
+            logger.warning(f"Could not find the selected quote (Author: {selected_quote.get('author', 'N/A')}, Text: '{selected_quote.get('text', 'N/A')[:50]}...') in {file_path} to update timestamp.")
             return False
 
         # Write the entire modified data back
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2) # Use indent=2 for readability
 
-        # print(f"Successfully updated timestamp for quote by {selected_quote['author']} in {file_path}.") # Keep this less verbose for validation
+        # logger.info(f"Successfully updated timestamp for quote by {selected_quote['author']} in {file_path}.") # Keep this less verbose for normal operation
         return True
 
     except FileNotFoundError:
-        print(f"Error: File not found at {file_path} during update.")
+        logger.error(f"File not found at {file_path} during update.")
         return False
     except json.JSONDecodeError as e:
-        print(f"Error decoding JSON from {file_path} during update: {e}")
+        logger.error(f"Error decoding JSON from {file_path} during update: {e}")
         return False
     except Exception as e:
-        print(f"An unexpected error occurred during the update process: {e}")
+        logger.error(f"An unexpected error occurred during the update process: {e}", exc_info=True)
         return False
 
 
 # Example usage (optional, can be placed under if __name__ == "__main__":)
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
     try:
+        # Use default path from config for test
         all_quotes = load_quotes_from_json()
-        print(f"Successfully loaded {len(all_quotes)} quotes.")
+        logger.info(f"Successfully loaded {len(all_quotes)} quotes for test.")
         if all_quotes:
             chosen_quote = select_quote(all_quotes)
             if chosen_quote:
-                print("\nSelected Quote:")
-                print(f"  Text: {chosen_quote.get('text', 'N/A')}")
-                print(f"  Author: {chosen_quote.get('author', 'N/A')}")
-                print(f"  Last Used (before update): {chosen_quote.get('last_used_timestamp', 'N/A')}")
+                logger.info(f"  Selected Quote (Test):")
+                logger.info(f"  Text: {chosen_quote.get('text', 'N/A')}")
+                logger.info(f"  Author: {chosen_quote.get('author', 'N/A')}")
+                logger.info(f"  Last Used (before update): {chosen_quote.get('last_used_timestamp', 'N/A')}")
 
                 # Update the usage timestamp
+                # Use default path from config for test update
                 if update_quote_usage(chosen_quote):
-                    print("Quote usage updated successfully.")
+                    logger.info("Quote usage updated successfully (Test).")
                     # Optionally reload and verify
                     # updated_quotes = load_quotes_from_json()
                     # for q in updated_quotes:
@@ -172,10 +180,10 @@ if __name__ == "__main__":
                     #         print(f"  Last Used (after update): {q.get('last_used_timestamp', 'N/A')}")
                     #         break
                 else:
-                    print("Failed to update quote usage.")
+                    logger.error("Failed to update quote usage (Test).")
             else:
-                print("Could not select a quote.")
+                logger.warning("Could not select a quote (Test).")
         else:
-            print("No quotes loaded to select from.")
+            logger.warning("No quotes loaded to select from (Test).")
     except Exception as e:
-        print(f"An error occurred in the example usage: {e}")
+        logger.error(f"An error occurred in the example usage: {e}", exc_info=True)
