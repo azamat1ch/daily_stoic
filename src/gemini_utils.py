@@ -5,14 +5,15 @@ from google.genai import types
 from PIL import Image
 from io import BytesIO
 import logging
+import json
 from typing import Optional, List, Union, Dict, Any
 
 from src.config import Config
 logger = logging.getLogger(__name__) # Use module-specific logger
 
-TEXT_MODEL_NAME = 'gemini-2.0-flash' 
+TEXT_MODEL_NAME = 'gemini-2.0-flash-thinking-exp' #'gemini-2.0-flash' 
 IMAGE_GEN_MODEL_NAME = 'gemini-2.0-flash-exp-image-generation'
-
+MULTIMODAL_MODEL_NAME = 'gemini-2.5-pro-exp-03-25'
 # --- Global Client Initialization ---
 # Load API key from Config
 API_KEY: Optional[str] = Config.GEMINI_API_KEY
@@ -52,7 +53,7 @@ def generate_image_prompt(quote_text: str) -> Optional[str]:
         return None
 
     model_name = TEXT_MODEL_NAME
-    prompt = f"""Based on the Stoic quote: '{quote_text}', craft an evocative image prompt (max 100 words) for an AI image generator.
+    prompt = f"""Based on the Stoic quote: '{quote_text}', craft an evocative image prompt (max 150 words) for an AI image generator.
 
                 1.  **Scene & Subject:** Describe a scene vividly capturing the quote's essence. Detail the main subject (this could be a statue, humans, animal, object, or even an abstract representation) and their action reflecting a Stoic principle (like acceptance, resilience, focus). Ensure the subject and scene are directly inspired by the quote.
                 2.  **Setting & Atmosphere:** Paint a picture of the setting, specifying its atmosphere (e.g., a single focused individual amidst chaos, a simple room bathed in morning light).
@@ -61,7 +62,7 @@ def generate_image_prompt(quote_text: str) -> Optional[str]:
                 5.  **Mood:** Convey the overall mood clearly (e.g., contemplative, resilient, tranquil acceptance, quiet determination).
                 6.  **Symbolism:** Include subtle, integrated symbolism related to the quote's core message.
 
-                Ensure the final output is *only* the image prompt itself, ready for an image generation model."""
+                Ensure the final output is *only* the image prompt itself, ready for an image generation model. The prompt should explicitly mention "portrait-oriented image in 4:5 aspect ratio" to ensure proper mobile-friendly dimensions."""
     try:
         response = client.models.generate_content(
             model=model_name,
@@ -107,7 +108,22 @@ def generate_explanation(quote_text: str) -> Optional[str]:
         return None
 
     model_name = TEXT_MODEL_NAME
-    prompt = f"For the Stoic quote: '{quote_text}', provide a brief (under 100 words) explanation focusing on how someone could apply this idea in their daily life. What's the key takeaway action?"
+    prompt = f"""Quote: '{quote_text}'
+
+                Generate a readable explanation (under 100 words total) for the Stoic quote above. Focus on practical daily application and provide a key takeaway action.
+
+                Structure the output as follows:
+
+                1.  A section heading "Meaning & Application:" followed by an explanation of the quote's practical meaning and how to apply it daily (approx. 2-4 short sentences).
+                2.  A section heading "Key Action:" followed by the core actionable step derived from the quote (approx. 1-2 short sentences).
+
+                Formatting Instructions for the Output:
+                *   Use ONLY <b>, <strong> tags for formatting. Do not use Markdown (*, _, etc.).
+                *   Make the section headings ("Meaning & Application:", "Key Action:") bold using either <b> or <strong> tags.
+                *   Use bold text for emphasis within the explanation sentences where appropriate, using either <b> or <strong> tags.
+                *   Do NOT include other HTML tags like <p>, <a>, <code>, or <pre>.
+                *   Ensure the final output is in text format. Make sure it's easy to read, uses short sentences, there is an ample white space between sections and is under the 100-word limit.
+            """
 
     try:
         # Use the client.models.generate_content structure
@@ -188,6 +204,84 @@ def generate_image_gemini(prompt_text: str) -> Optional[bytes]:
         logger.error(f"Error during Gemini image generation ({model_name}): {e}", exc_info=True)
         return None
 
+def choose_best_image(quote_text: str, images: List[Image.Image]) -> Optional[int]:
+    """
+    Uses Gemini multimodal capabilities to choose the best image from a list
+    based on a given quote text.
+
+    Args:
+        quote_text: The Stoic quote text to evaluate against.
+        images: A list of PIL Image objects.
+
+    Returns:
+        The 0-based index of the best image in the list
+    """
+    client = _get_client()
+    if not client:
+        return None
+    if not images:
+        logger.warning("choose_best_image called with an empty image list.")
+        return None
+
+    num_images = len(images)
+    image_indices = ", ".join(map(str, range(num_images)))
+    
+    model_name = MULTIMODAL_MODEL_NAME
+    prompt = f"""Analyze the following Stoic quote: '{quote_text}'.
+        You are provided with {num_images} images (indexed {image_indices}). Evaluate each image based on its visual quality and how well it represents the meaning and tone of the quote.
+
+        Respond ONLY with a JSON object containing the following keys:
+        - "best_image_index": The 0-based index ({image_indices}) of the image you deem the best fit.
+        - "explanation": A brief explanation of why you chose that image, considering both quality and relevance to the quote.
+
+        Use this JSON schema:
+        {{
+        "best_image_index": int,
+        "explanation": str
+        }}
+        Ensure the output is only the JSON object.
+    """
+
+    try:
+        contents = [prompt] + images
+
+        response = client.models.generate_content(
+            model=model_name,
+            contents=contents,
+            config={'response_mime_type': 'application/json'}
+        )
+
+        raw_response = response.text
+        logger.info(f"Raw response from Gemini for image choice: {raw_response}")
+
+        try:
+            parsed_response = json.loads(raw_response)
+            best_index = parsed_response.get("best_image_index")
+            explanation = parsed_response.get("explanation") # Optional to log
+
+            if best_index is not None and isinstance(best_index, int):
+                if 0 <= best_index < num_images:
+                    logger.info(f"Successfully parsed response. Best image index: {best_index}. Explanation: {explanation}")
+                    return best_index
+                else:
+                    logger.error(f"Received invalid best_image_index: {best_index}. Number of images: {num_images}")
+                    return None
+            else:
+                logger.error(f"Parsed JSON is missing 'best_image_index' or it's not an integer. Response: {parsed_response}")
+                return None
+
+        except json.JSONDecodeError:
+            logger.error(f"Failed to parse Gemini response as JSON for image choice. Raw response was: {raw_response}")
+            return None
+        except Exception as e:
+             logger.error(f"An error occurred after receiving/parsing image choice response: {e}", exc_info=True)
+             return None
+
+    except Exception as e:
+        logger.error(f"Error during Gemini API call for image choice ({model_name}): {e}", exc_info=True)
+        return None
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     logger.info("Running gemini_utils.py directly for testing...")
@@ -195,7 +289,8 @@ if __name__ == "__main__":
     if _get_client(): # Check if client initialization succeeded
         # Test the new image generation function
         # Correct indentation for the test prompt string
-        test_prompt = """Cinematic, atmospheric 3D render. A weathered, bronze statue of a blacksmith stands silhouetted against a raging wildfire encroaching on his village. He ignores the flames and chaos behind him, hammer raised mid-strike, intently shaping a gleaming sword on his anvil. Sparks fly, mirroring the distant fire but contained and controlled. Muted, earthy browns and deep oranges contrast sharply with the cool steel of the sword. Dramatic, chiaroscuro lighting focuses intensely on the blacksmith and his work, casting long, symbolic shadows. A single, unbroken chain forged from the fire's iron lays at his feet. Mood: Quiet determination amidst overwhelming adversity, embodying acceptance and purposeful action."""
+        test_prompt = """
+        Portrait-oriented image in 4:5 aspect ratio. Cinematic and atmospheric realistic digital painting. A weathered blacksmith, face etched with determination, intensely hammers a glowing sword on an anvil in a dimly lit, rustic forge. Fiery sparks erupt with each strike. Dramatic chiaroscuro lighting emphasizes the blacksmith's focused gaze and the molten metal. Dark, muted color palette of earthy browns, deep reds, and soot-stained greys. Mood: quiet determination and resolute action. Symbolism: forging character through purposeful work.  Atmosphere of focused labor and inner strength.        """
         logger.info(f"Testing generate_image_gemini with prompt: '{test_prompt}'")
         image_data = generate_image_gemini(test_prompt)
 

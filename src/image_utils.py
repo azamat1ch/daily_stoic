@@ -33,7 +33,7 @@ def embed_text_on_image(image_data: bytes, quote_text: str, author: str) -> Imag
         # Ensure the font path is a string
         font_path_str = str(Config.FONT_PATH) # Use static access Config.FONT_PATH
         # Use a relative size for the font, e.g., 5% of image height
-        base_font_size = int(height * 0.05)
+        base_font_size = int(height * 0.04)
         quote_font = ImageFont.truetype(font_path_str, size=base_font_size)
         author_font_size = int(base_font_size * 0.7) # Slightly smaller for author
         # Construct path to italic font relative to the main font path
@@ -42,7 +42,7 @@ def embed_text_on_image(image_data: bytes, quote_text: str, author: str) -> Imag
 
         # --- Text Metrics Calculation ---
         # Define max width for text wrapping (e.g., 80% of image width)
-        max_text_width_ratio = 0.6
+        max_text_width_ratio = 0.8
         max_text_width_pixels = int(width * max_text_width_ratio)
 
         # Wrap quote text based on pixel width

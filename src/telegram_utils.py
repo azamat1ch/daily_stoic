@@ -42,7 +42,8 @@ async def post_to_telegram(bot_token: str, chat_id: str, image_object: Image.Ima
         await bot.send_photo(
             chat_id=chat_id,
             photo=img_byte_arr,
-            caption=caption_text
+            caption=caption_text,
+            parse_mode = 'HTML'
         )
         logger.info(f"Successfully posted image with caption to chat ID: {chat_id}")
         return True
@@ -71,7 +72,12 @@ if __name__ == '__main__':
     if TEST_BOT_TOKEN and TEST_CHAT_ID:
         try:
             dummy_image = Image.new('RGB', (600, 400), color = 'red')
-            dummy_caption = "This is a test post from telegram_utils.py"
+            dummy_caption = """<b>Meaning & Application:</b>
+Stop endlessly debating the definition of a good person. <em>Instead</em>, focus your energy on <em>being</em> virtuous through your daily actions.  <em>Practice</em> kindness, honesty, and self-control rather than just talking about them.
+
+<b>Key Action:</b>
+<em>Act</em> with virtue in every situation. <em>Embody</em> goodness instead of just defining it.
+"""
 
             async def run_test():
                 logger.info(f"Attempting test post to chat ID: {TEST_CHAT_ID}")

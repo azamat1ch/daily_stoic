@@ -3,12 +3,14 @@ import json
 import logging
 import asyncio
 import sys
+from PIL import Image
+from io import BytesIO
 logger = logging.getLogger(__name__)
 
 try:
     from src.config import Config
     from src.quote_manager import load_quotes_from_json, select_quote, update_quote_usage
-    from src.gemini_utils import generate_image_prompt, generate_explanation, generate_image_gemini
+    from src.gemini_utils import generate_image_prompt, generate_explanation, generate_image_gemini, choose_best_image
     from src.image_utils import embed_text_on_image
     from src.telegram_utils import post_to_telegram
 except ImportError as e:
@@ -94,21 +96,56 @@ async def main_workflow():
 
         # --- 2. Generate Content with Gemini ---
         logger.info("Generating content using Gemini API...")
-        # 2a. Generate Image Prompt
-        logger.info("Generating image prompt...")
-        image_prompt = generate_image_prompt(quote_text)
-        if not image_prompt:
-            logger.error("Failed to generate image prompt (check Gemini API key, quota, and prompt). Halting workflow.")
-            return
-        logger.info(f"Generated image prompt: {image_prompt[:100]}...")
-        # 2b. Generate Image
-        logger.info("Generating image...")
-        # Use updated function name
-        image_data = generate_image_gemini(image_prompt)
-        if not image_data:
-            logger.error("Failed to generate image (check Gemini API key, quota, and image prompt). Halting workflow.")
-            return
-        logger.info("Image generated successfully (data received).")
+        num_images_to_generate = 4
+        logger.info(f"Generating {num_images_to_generate} images based on prompt...")
+        generated_images_data = [] # List to store tuples of (bytes, PIL.Image)
+
+        for i in range(num_images_to_generate):
+            # 2a. Generate Image Prompt
+            logger.info(f"Generating image prompt {i+1}/{num_images_to_generate}...")
+            image_prompt = generate_image_prompt(quote_text)
+            if not image_prompt:
+                logger.error(f"Failed to generate image prompt {i+1}/{num_images_to_generate} (check Gemini API key, quota, and prompt). Halting workflow.")
+                return
+            logger.info(f"Generated image prompt: {image_prompt[:100]}...")
+            # 2b. Generate Image
+            logger.info(f"Generating image {i+1}/{num_images_to_generate}...")
+            image_data_bytes = generate_image_gemini(image_prompt)
+            if not image_data_bytes:
+                # Log error but potentially continue if other images were generated?
+                # For now, halt if any image fails. Could be made more robust.
+                logger.error(f"Failed to generate image {i+1} (check Gemini API key, quota, and image prompt). Halting workflow.")
+                return
+            try:
+                # Store both bytes and PIL Image object
+                pil_image = Image.open(BytesIO(image_data_bytes))
+                pil_image.save(f"test_image_{i+1}.png")
+                generated_images_data.append({'bytes': image_data_bytes, 'pil': pil_image})
+                logger.info(f"Image {i+1} generated and processed successfully.")
+            except Exception as e:
+                logger.error(f"Failed to process generated image {i+1} data into PIL Image: {e}. Halting workflow.", exc_info=True)
+                return
+
+        if len(generated_images_data) != num_images_to_generate:
+             logger.error(f"Expected {num_images_to_generate} images, but only processed {len(generated_images_data)}. Halting workflow.")
+             return
+
+        # 2c. Choose the Best Image
+        logger.info("Choosing the best image using Gemini multimodal analysis...")
+        pil_images_list = [img_data['pil'] for img_data in generated_images_data]
+        best_image_index = choose_best_image(quote_text, pil_images_list)
+
+        if best_image_index is None:
+            logger.warning("Failed to determine the best image via Gemini. Falling back to using the first generated image.")
+            best_image_index = 0 # Fallback to the first image
+        else:
+             logger.info(f"Gemini selected image at index {best_image_index} as the best.")
+
+        # Select the *bytes* of the chosen image for embedding
+        chosen_image_data_bytes = generated_images_data[best_image_index]['bytes']
+        logger.info(f"Selected image data (bytes) from index {best_image_index}.")
+
+        # 2d. Generate Explanation (Moved after image selection, but could be parallel)
         # 2c. Generate Explanation
         logger.info("Generating explanation...")
         explanation = generate_explanation(quote_text)
@@ -120,7 +157,7 @@ async def main_workflow():
         # --- 3. Embed Text on Image ---
         logger.info("Embedding text onto the generated image...")
         final_image_object = embed_text_on_image(
-            image_data=image_data,
+            image_data=chosen_image_data_bytes, # Use the chosen image bytes
             quote_text=quote_text,
             author=author,
         )
