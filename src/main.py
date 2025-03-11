@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 try:
     from src.config import Config
-    from src.quote_manager import load_quotes_from_json, select_quote, update_quote_usage
+    from src.quote_manager import select_next_quote
     from src.gemini_utils import generate_image_prompt, generate_explanation, generate_image_gemini, choose_best_image
     from src.image_utils import embed_text_on_image
     from src.telegram_utils import post_to_telegram
@@ -24,7 +24,8 @@ def validate_configuration():
     required_vars = {
         'TELEGRAM_BOT_TOKEN': Config.TELEGRAM_BOT_TOKEN,
         'TELEGRAM_CHANNEL_ID': Config.TELEGRAM_CHANNEL_ID,
-        'GEMINI_API_KEY': Config.GEMINI_API_KEY
+        'GEMINI_API_KEY': Config.GEMINI_API_KEY,
+        'GCS_BUCKET_NAME': Config.GCS_BUCKET_NAME # Added GCS bucket check
     }
     missing_vars = [name for name, value in required_vars.items() if value is None]
 
@@ -32,9 +33,9 @@ def validate_configuration():
         logger.error(f"Missing critical configuration variables: {', '.join(missing_vars)}. Check .env file and src/config.py.")
         return False
 
-    # Check if essential files/dirs exist
+    # Check if essential files/dirs exist (Local quotes file check removed)
     essential_paths = {
-        "Quotes File": Config.QUOTES_FILE_PATH,
+        # "Quotes File": Config.QUOTES_FILE_PATH, # Removed - state is in GCS
         "Regular Font": Config.FONT_PATH,
         "Italic Font": Config.ITALIC_FONT_PATH,
         "Log Directory": Config.LOG_DIR # Check dir, not file which might not exist yet
@@ -66,30 +67,15 @@ async def main_workflow():
     try:
         # --- Core Workflow Logic ---
 
-        # --- 1. Load and Select Quote ---
-        logger.info(f"Loading quotes from {Config.QUOTES_FILE_PATH}...")
-        try:
-            # Use path from Config
-            all_quotes = load_quotes_from_json(str(Config.QUOTES_FILE_PATH))
-        except FileNotFoundError:
-            # Error logged in load_quotes_from_json
-            logger.error("Halting workflow because quotes file was not found.")
-            return
-        except (json.JSONDecodeError, Exception) as e:
-            # Error logged in load_quotes_from_json
-            logger.error(f"Failed to load or parse quotes: {e}. Halting workflow.")
-            return
-
-        if not all_quotes:
-            logger.error("No valid quotes loaded from file (check format and content). Halting workflow.")
-            return
-
-        logger.info(f"Loaded {len(all_quotes)} quotes. Selecting one...")
-        selected_quote = select_quote(all_quotes) # Pass the list of quotes
+        # --- 1. Select Next Quote (Handles GCS Load/Select/Save) ---
+        logger.info("Selecting next quote using GCS state...")
+        selected_quote = select_next_quote() # This function now handles GCS interaction
 
         if not selected_quote:
-            logger.error("Failed to select a suitable quote (check timestamps and quote list). Halting workflow.")
-            return # Exit workflow if quote selection fails
+            # Errors during loading, selection, or saving are logged within select_next_quote
+            logger.error("Failed to select next quote (check quote_manager logs for GCS issues). Halting workflow.")
+            return # Exit workflow if quote selection/update fails
+
         logger.info(f"Selected quote: \"{selected_quote['text'][:50]}...\" by {selected_quote['author']}")
         quote_text = selected_quote['text']
         author = selected_quote['author']
@@ -177,14 +163,6 @@ async def main_workflow():
         )
         if post_success:
             logger.info("Successfully posted to Telegram.")
-            # --- 5. Update Quote Usage ---
-            logger.info(f"Updating usage timestamp for quote by {selected_quote['author']}...")
-            # Use path from Config
-            update_success = update_quote_usage(selected_quote, str(Config.QUOTES_FILE_PATH))
-            if update_success:
-                logger.info("Quote usage timestamp updated successfully.")
-            else:
-                logger.warning("Failed to update quote usage timestamp (check file permissions?).") # Log as warning, workflow succeeded overall
         else:
             logger.error("Failed to post to Telegram (check bot token, chat ID, and network).")
 

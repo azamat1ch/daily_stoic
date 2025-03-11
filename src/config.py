@@ -27,7 +27,10 @@ class Config:
     # AI Services Configuration
     GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 
-    # Data Files Configuration
+    # Google Cloud Storage Configuration
+    GCS_BUCKET_NAME = os.getenv("GCS_BUCKET_NAME")
+
+    # Data Files Configuration (Local Fallback)
     QUOTES_FILENAME = 'quotes.json'
     QUOTES_FILE_PATH = BASE_DIR / 'data' / QUOTES_FILENAME
 

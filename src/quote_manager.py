@@ -5,185 +5,200 @@ import time
 import logging
 from typing import List, Dict, Any, Optional
 
+from google.cloud import storage
+from google.api_core.exceptions import NotFound, Forbidden
+
 from src.config import Config
+
 logger = logging.getLogger(__name__)
-DEFAULT_QUOTES_FILE_PATH = Config.QUOTES_FILE_PATH
 
-def load_quotes_from_json(file_path: str = str(DEFAULT_QUOTES_FILE_PATH)) -> List[Dict[str, Any]]:
-    """
-    Loads quotes from a JSON file structured as {"quotes": [...]}.
+# --- Configuration ---
+GCS_BUCKET_NAME = Config.GCS_BUCKET_NAME
+QUOTES_BLOB_NAME = "quotes.json"  # Name of the file in GCS
+# LOCAL_QUOTES_PATH is removed as fallback is disabled
 
-    Args:
-        file_path (str): The path to the JSON file containing quotes.
-                         Defaults to QUOTES_FILE_PATH.
+# --- GCS Helper Functions ---
 
-    Returns:
-        List[Dict[str, Any]]: A list of quote dictionaries extracted from the
-                              "quotes" key. Returns an empty list if the file
-                              is not found, is invalid JSON, or doesn't follow
-                              the expected structure.
+def _get_gcs_blob() -> Optional[storage.Blob]:
+    """Initializes GCS client and returns the blob object for quotes.json."""
+    if not GCS_BUCKET_NAME:
+        logger.error("GCS_BUCKET_NAME is not configured.")
+        return None
+    try:
+        # Uses Application Default Credentials (ADC)
+        client = storage.Client()
+        bucket = client.bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(QUOTES_BLOB_NAME)
+        return blob
+    except Exception as e:
+        logger.error(f"Failed to initialize GCS client or get blob: {e}", exc_info=True)
+        return None
 
-    Raises:
-        FileNotFoundError: If the specified file_path does not exist.
-        json.JSONDecodeError: If the file content is not valid JSON.
-        Exception: For other potential file reading errors.
-    """
-    if not os.path.exists(file_path):
-        logger.error(f"Quotes file not found at {file_path}")
-        raise FileNotFoundError(f"Quotes file not found at {file_path}")
+# _load_quotes_from_local_fallback function is removed
+
+def _load_quotes_from_gcs() -> List[Dict[str, Any]]:
+    """Loads quotes data strictly from GCS. Returns empty list on any error."""
+    blob = _get_gcs_blob()
+    if not blob:
+        logger.error("Failed to get GCS blob object. Cannot load quotes.")
+        return [] # No fallback
 
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            if not isinstance(data, dict) or "quotes" not in data or not isinstance(data.get("quotes"), list):
-                logger.warning(f"Invalid JSON structure in {file_path}. Expected {{'quotes': [...]}}. Found type {type(data)} with quotes type {type(data.get('quotes'))}. Returning empty list.")
-                return []
+        if not blob.exists():
+            logger.error(f"Quotes file '{QUOTES_BLOB_NAME}' not found in GCS bucket '{GCS_BUCKET_NAME}'. Cannot load quotes.")
+            return [] # No fallback, file must exist
 
-            quotes_list = data["quotes"]
+        logger.info(f"Loading quotes from GCS: gs://{GCS_BUCKET_NAME}/{QUOTES_BLOB_NAME}")
+        json_string = blob.download_as_text()
+        data = json.loads(json_string)
 
-            # Basic check: ensure all items are dicts if list is not empty
-            if quotes_list and not all(isinstance(q, dict) for q in quotes_list):
-                 logger.warning(f"Not all items in the 'quotes' list in {file_path} are dictionaries. Returning empty list.")
-                 return []
+        if not isinstance(data, dict) or "quotes" not in data or not isinstance(data.get("quotes"), list):
+            logger.error(f"Invalid JSON structure in GCS blob gs://{GCS_BUCKET_NAME}/{QUOTES_BLOB_NAME}. Expected {{'quotes': [...]}}. Cannot load quotes.")
+            return [] # No fallback for invalid structure
 
-            for quote in quotes_list:
-                if "last_used_timestamp" not in quote:
-                    # This should ideally not happen after the update script, but good fallback
-                    quote["last_used_timestamp"] = 0
-                elif not isinstance(quote["last_used_timestamp"], (int, float)):
-                     # Ensure existing timestamps are numeric
-                     logger.warning(f"Non-numeric timestamp found for quote: '{quote.get('text', 'N/A')[:50]}...'. Setting to 0.")
-                     quote["last_used_timestamp"] = 0
+        quotes_list = data["quotes"]
+        # Ensure timestamps are present and numeric
+        for quote in quotes_list:
+            if "last_used_timestamp" not in quote:
+                quote["last_used_timestamp"] = 0
+            elif not isinstance(quote["last_used_timestamp"], (int, float)):
+                logger.warning(f"Non-numeric timestamp in GCS data for quote: '{quote.get('text', 'N/A')[:50]}...'. Setting to 0.")
+                quote["last_used_timestamp"] = 0
+        return quotes_list
 
-            return quotes_list
+    except Forbidden as e:
+        logger.error(f"Permission denied accessing GCS bucket '{GCS_BUCKET_NAME}' or blob '{QUOTES_BLOB_NAME}'. Check credentials/permissions. Error: {e}", exc_info=True)
+        return [] # No fallback
     except json.JSONDecodeError as e:
-        logger.error(f"Error decoding JSON from {file_path}: {e}")
-        raise
+        logger.error(f"Error decoding JSON from GCS blob gs://{GCS_BUCKET_NAME}/{QUOTES_BLOB_NAME}: {e}")
+        return [] # No fallback
     except Exception as e:
-        logger.error(f"An unexpected error occurred while reading {file_path}: {e}", exc_info=True)
-        raise
+        logger.error(f"Unexpected error loading quotes from GCS: {e}", exc_info=True)
+        return [] # No fallback
 
-def select_quote(quotes: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """
-    Selects a quote from the list, prioritizing those least recently used.
+def _save_quotes_to_gcs(data: Dict[str, Any]) -> bool:
+    """Saves the provided data dictionary (expected {'quotes': [...]}) to GCS as JSON."""
+    blob = _get_gcs_blob()
+    if not blob:
+        logger.error("Failed to get GCS blob. Cannot save quotes.")
+        return False
 
-    Args:
-        quotes (List[Dict[str, Any]]): A list of quote dictionaries,
-                                       each expected to have a 'last_used_timestamp'.
+    if not isinstance(data, dict) or "quotes" not in data:
+        logger.error(f"Invalid data structure for saving to GCS. Expected {{'quotes': [...]}}.")
+        return False
 
-    Returns:
-        Optional[Dict[str, Any]]: The selected quote dictionary, or None if the
-                                  input list is empty or invalid.
-    """
+    try:
+        json_string = json.dumps(data, indent=2)
+        blob.upload_from_string(json_string, content_type='application/json')
+        logger.info(f"Successfully saved quotes state to GCS: gs://{GCS_BUCKET_NAME}/{QUOTES_BLOB_NAME}")
+        return True
+    except Forbidden as e:
+        logger.error(f"Permission denied writing to GCS. Check credentials/permissions. Error: {e}", exc_info=True)
+        return False
+    except Exception as e:
+        logger.error(f"Unexpected error saving quotes to GCS: {e}", exc_info=True)
+        return False
+
+# --- Core Quote Selection Logic ---
+
+def _select_least_recently_used_quote(quotes: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Selects a quote from the list, prioritizing those least recently used."""
     if not quotes:
-        logger.warning("Cannot select a quote from an empty list.")
+        logger.warning("Cannot select quote from empty list.")
         return None
 
     valid_quotes = [q for q in quotes if isinstance(q, dict) and "last_used_timestamp" in q and isinstance(q["last_used_timestamp"], (int, float))]
     if not valid_quotes:
-        # This might happen if load_quotes_from_json returned an empty list due to format errors
-        logger.warning("No valid quotes with numeric 'last_used_timestamp' found in the provided list.")
+        logger.warning("No valid quotes with numeric 'last_used_timestamp' found.")
         return None
 
     min_timestamp = min(q["last_used_timestamp"] for q in valid_quotes)
     eligible_quotes = [q for q in valid_quotes if q["last_used_timestamp"] == min_timestamp]
     selected_quote = random.choice(eligible_quotes)
+    logger.info(f"Selected quote by {selected_quote.get('author', 'N/A')} (Last used: {min_timestamp})")
     return selected_quote
 
-def update_quote_usage(selected_quote: Dict[str, Any], file_path: str = str(DEFAULT_QUOTES_FILE_PATH)) -> bool:
+def select_next_quote() -> Optional[Dict[str, Any]]:
     """
-    Updates the 'last_used_timestamp' for the selected quote in the JSON file.
-
-    Args:
-        selected_quote (Dict[str, Any]): The quote dictionary that was selected.
-                                         Must contain 'text' and 'author' keys for matching.
-        file_path (str): The path to the JSON file. Defaults to QUOTES_FILE_PATH.
-
-    Returns:
-        bool: True if the update was successful, False otherwise.
+    Loads quotes from GCS, selects the next quote, updates its timestamp,
+    saves the state back to GCS, and returns the selected quote.
+    Requires the quotes file to exist in GCS. Returns None on failure.
     """
-    if not selected_quote or not isinstance(selected_quote, dict) or "text" not in selected_quote or "author" not in selected_quote:
-        logger.error(f"Invalid selected_quote object provided for update: {selected_quote}")
-        return False
+    logger.info("Selecting next quote using GCS state...")
+    quotes_data_list = _load_quotes_from_gcs() # Now strictly loads from GCS or returns []
 
-    try:
-        # Read the entire current data structure
-        with open(file_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
+    if not quotes_data_list:
+        # Error logged within _load_quotes_from_gcs if loading failed
+        logger.error("Failed to load quotes from GCS. Cannot select.")
+        return None
 
-        if not isinstance(data, dict) or "quotes" not in data or not isinstance(data.get("quotes"), list):
-            logger.error(f"Invalid structure in {file_path} during update. Expected {{'quotes': [...]}}. Found type {type(data)} with quotes type {type(data.get('quotes'))}.")
-            return False
+    selected_quote = _select_least_recently_used_quote(quotes_data_list)
 
-        quote_found = False
-        current_timestamp = int(time.time())
-        quotes_list = data["quotes"]
-        for i, quote in enumerate(quotes_list):
-            # Match based on text and author to uniquely identify the quote
-            if isinstance(quote, dict) and quote.get("text") == selected_quote["text"] and quote.get("author") == selected_quote["author"]:
-                # Ensure the timestamp exists before updating
-                if "last_used_timestamp" not in data["quotes"][i]:
-                     logger.warning(f"Updating quote that was missing 'last_used_timestamp'. Adding it now.")
-                data["quotes"][i]["last_used_timestamp"] = current_timestamp
-                quote_found = True
-                break # Assume text/author combination is unique enough
+    if not selected_quote:
+        logger.warning("Could not select a suitable quote from loaded data.")
+        return None
 
-        if not quote_found:
-            # This could happen if the quotes file was modified between selection and update
-            logger.warning(f"Could not find the selected quote (Author: {selected_quote.get('author', 'N/A')}, Text: '{selected_quote.get('text', 'N/A')[:50]}...') in {file_path} to update timestamp.")
-            return False
+    # Update timestamp in memory
+    quote_found_in_memory = False
+    current_timestamp = int(time.time())
+    for i, quote in enumerate(quotes_data_list):
+        # Match based on text and author
+        if isinstance(quote, dict) and quote.get("text") == selected_quote["text"] and quote.get("author") == selected_quote["author"]:
+            logger.debug(f"Updating timestamp for selected quote (index {i}) in memory.")
+            quotes_data_list[i]["last_used_timestamp"] = current_timestamp
+            quote_found_in_memory = True
+            break
 
-        # Write the entire modified data back
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2) # Use indent=2 for readability
+    if not quote_found_in_memory:
+        logger.error("Selected quote not found in memory list for timestamp update. Aborting GCS save.")
+        return None # State wasn't updated
 
-        # logger.info(f"Successfully updated timestamp for quote by {selected_quote['author']} in {file_path}.") # Keep this less verbose for normal operation
-        return True
-
-    except FileNotFoundError:
-        logger.error(f"File not found at {file_path} during update.")
-        return False
-    except json.JSONDecodeError as e:
-        logger.error(f"Error decoding JSON from {file_path} during update: {e}")
-        return False
-    except Exception as e:
-        logger.error(f"An unexpected error occurred during the update process: {e}", exc_info=True)
-        return False
+    # Save updated list back to GCS
+    updated_data_to_save = {"quotes": quotes_data_list}
+    if _save_quotes_to_gcs(updated_data_to_save):
+        logger.info(f"Successfully updated quote usage state in GCS for quote by {selected_quote.get('author', 'N/A')}.")
+        return selected_quote # Return the selected quote
+    else:
+        logger.error("Failed to save updated quotes state to GCS. Selection made, but state update failed.")
+        # Return None to indicate the full process didn't complete successfully.
+        return None
 
 
-# Example usage (optional, can be placed under if __name__ == "__main__":)
+# --- Main execution block for local testing ---
 if __name__ == "__main__":
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
-    try:
-        # Use default path from config for test
-        all_quotes = load_quotes_from_json()
-        logger.info(f"Successfully loaded {len(all_quotes)} quotes for test.")
-        if all_quotes:
-            chosen_quote = select_quote(all_quotes)
-            if chosen_quote:
-                logger.info(f"  Selected Quote (Test):")
-                logger.info(f"  Text: {chosen_quote.get('text', 'N/A')}")
-                logger.info(f"  Author: {chosen_quote.get('author', 'N/A')}")
-                logger.info(f"  Last Used (before update): {chosen_quote.get('last_used_timestamp', 'N/A')}")
 
-                # Update the usage timestamp
-                # Use default path from config for test update
-                if update_quote_usage(chosen_quote):
-                    logger.info("Quote usage updated successfully (Test).")
-                    # Optionally reload and verify
-                    # updated_quotes = load_quotes_from_json()
-                    # for q in updated_quotes:
-                    #     if q.get("text") == chosen_quote["text"] and q.get("author") == chosen_quote["author"]:
-                    #         print(f"  Last Used (after update): {q.get('last_used_timestamp', 'N/A')}")
-                    #         break
-                else:
-                    logger.error("Failed to update quote usage (Test).")
-            else:
-                logger.warning("Could not select a quote (Test).")
+    # Ensure environment variables are loaded (e.g., from a .env file)
+    from dotenv import load_dotenv
+    env_path = os.path.join(os.path.dirname(__file__), '..', '.env') # Assumes .env is in project root
+    load_dotenv(dotenv_path=env_path)
+    # Re-fetch GCS_BUCKET_NAME
+    GCS_BUCKET_NAME = os.getenv("GCS_BUCKET_NAME") or Config.GCS_BUCKET_NAME
+    if not GCS_BUCKET_NAME:
+         logger.error("GCS_BUCKET_NAME not found in environment variables or config. Please set it in your .env file.")
+         exit(1)
+
+    logger.info(f"--- Running Quote Manager Test (Bucket: {GCS_BUCKET_NAME}, No Fallback) ---")
+
+    try:
+        # Crucial: Ensure quotes.json exists in the GCS bucket before running this test
+        logger.info(f"Attempting to select quote. Ensure gs://{GCS_BUCKET_NAME}/{QUOTES_BLOB_NAME} exists and is accessible.")
+        next_quote = select_next_quote()
+
+        if next_quote:
+            print("\n--- Selected Quote ---")
+            print(f"Text: {next_quote.get('text')}")
+            print(f"Author: {next_quote.get('author')}")
+            print(f"Timestamp (before update): {next_quote.get('last_used_timestamp')}")
+            print("----------------------\n")
+            logger.info("Quote selection and GCS update process completed successfully (as reported by the function).")
         else:
-            logger.warning("No quotes loaded to select from (Test).")
+            logger.warning("select_next_quote() returned None. Check logs for errors (GCS file missing/inaccessible, invalid format, selection error, or save failure).")
+
     except Exception as e:
-        logger.error(f"An error occurred in the example usage: {e}", exc_info=True)
+        logger.error(f"An error occurred during the test execution: {e}", exc_info=True)
+
+    logger.info("--- Quote Manager Test Finished ---")
