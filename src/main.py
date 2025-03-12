@@ -76,7 +76,7 @@ async def main_workflow():
             logger.error("Failed to select next quote (check quote_manager logs for GCS issues). Halting workflow.")
             return # Exit workflow if quote selection/update fails
 
-        logger.info(f"Selected quote: \"{selected_quote['text'][:50]}...\" by {selected_quote['author']}")
+        logger.info(f"Selected quote: \"{selected_quote['text']}...\" by {selected_quote['author']}")
         quote_text = selected_quote['text']
         author = selected_quote['author']
 
@@ -93,7 +93,7 @@ async def main_workflow():
             if not image_prompt:
                 logger.error(f"Failed to generate image prompt {i+1}/{num_images_to_generate} (check Gemini API key, quota, and prompt). Halting workflow.")
                 return
-            logger.info(f"Generated image prompt: {image_prompt[:100]}...")
+            logger.info(f"Generated image prompt: {image_prompt}...")
             # 2b. Generate Image
             logger.info(f"Generating image {i+1}/{num_images_to_generate}...")
             image_data_bytes = generate_image_gemini(image_prompt)

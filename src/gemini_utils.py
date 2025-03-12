@@ -62,7 +62,7 @@ def generate_image_prompt(quote_text: str) -> Optional[str]:
                 5.  **Mood:** Convey the overall mood clearly (e.g., contemplative, resilient, tranquil acceptance, quiet determination).
                 6.  **Symbolism:** Include subtle, integrated symbolism related to the quote's core message.
 
-                Ensure the final output is *only* the image prompt itself, ready for an image generation model. The prompt should explicitly mention "portrait-oriented image in 4:5 aspect ratio" to ensure proper mobile-friendly dimensions."""
+                Ensure the final output is *only* the image prompt itself, ready for an image generation model. The prompt should explicitly mention "High-quality, 4K, stylized in 3:4 aspect ratio" to ensure proper mobile-friendly dimensions."""
     try:
         response = client.models.generate_content(
             model=model_name,
