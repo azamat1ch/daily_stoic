@@ -6,6 +6,12 @@ A Telegram bot that shares daily Stoic quotes with a modern twist, combining anc
 
 The Daily Stoic AI Telegram Channel project aims to create an engaging and educational Telegram bot that delivers daily Stoic quotes, enhanced with AI-generated insights and visual content. The bot will source quotes from classic Stoic texts (Marcus Aurelius, Epictetus, and Seneca) and present them in a modern, accessible format.
 
+![Example Image](tests/assets/example.jpg) 
+   >**Meaning & Application:**
+      When criticized, first ask yourself: is there truth in the accusation? If so, use it as a chance for self-improvement. If it's untrue, realize it's just noise and don't let it disturb your inner peace. Focus on your own actions, not others' opinions.
+      
+   >**Key Action:**
+      When faced with negative comments, reflect on their validity. If true, improve; if false, ignore.
 ## Features
 
 - Daily Stoic quotes from classic texts

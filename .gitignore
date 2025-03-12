@@ -51,7 +51,6 @@ coverage.xml
 
 # Generated image files
 *.png
-*.jpg
 *.jpeg
 *.gif
 
